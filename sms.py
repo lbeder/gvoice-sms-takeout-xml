@@ -100,7 +100,7 @@ def write_sms_messages(file, messages_raw):
     sms_backup_file = open(sms_backup_filename, "a", encoding="utf8")
     for message in messages_raw:
         # Check if message has an image in it and treat as mms if so
-        if message.find_all("img"):
+        if message.find_all("img") or message.find_all("a", class_='video') or message.find_all("audio"):
             write_mms_messages(file, [[participant_raw]], [message])
             continue
 
@@ -210,6 +210,164 @@ def write_mms_messages(file, participants_raw, messages_raw):
                     f'data="{byte_string[2:-1]}" />\n'
                 )
 
+        # Handle videos
+        videos = message.find_all("a", class_='video')
+        video_parts = ""
+        if videos:
+            for video in videos:
+                supported_types = ["mp4", "3gp"]
+                video_filename = video["href"]
+                original_video_filename = video_filename
+                # Each video found should only match a single file
+                video_path = list(Path.cwd().glob(f"**/*{video_filename}"))
+
+                if len(video_path) == 0:
+                    # Sometimes they just forget the extension
+                    for supported_type in supported_types:
+                        video_path = list(
+                            Path.cwd().glob(
+                                f"**/*{video_filename}.{supported_type}")
+                        )
+                        if len(video_path) == 1:
+                            break
+
+                if len(video_path) == 0:
+                    # Sometimes the first word doesn't match (eg it is a phone number instead of a
+                    # contact name) so try again without the first word
+                    video_filename = "-".join(
+                        original_video_filename.split("-")[1:])
+                    video_path = list(Path.cwd().glob(
+                        f"**/*{video_filename}*"))
+
+                if len(video_path) == 0:
+                    # Sometimes the video filename matches the message filename instead of the
+                    # filename in the HTML. And sometimes the message filenames are repeated, eg
+                    # filefoo(0).html, filefoo(1).html, etc., but the video filename matches just
+                    # the base ("filefoo" in this example).
+                    video_filenames = [Path(file).stem, Path(
+                        file).stem.split("(")[0]]
+                    for video_filename in video_filenames:
+                        # Have to guess at the file extension in this case
+                        for supported_type in supported_types:
+                            video_path = list(
+                                Path.cwd().glob(
+                                    f"**/*{video_filename}*.{supported_type}"
+                                )
+                            )
+                            # Sometimes there's extra cruft in the filename in the HTML. So try to
+                            # match a subset of it.
+                            if len(video_path) > 1:
+                                for ip in video_path:
+                                    if ip.stem in original_video_filename:
+                                        video_path = [ip]
+                                        break
+
+                            if len(video_path) == 1:
+                                break
+                        if len(video_path) == 1:
+                            break
+
+                assert (
+                    len(video_path) != 0
+                ), f"No matching videos found. File name: {original_video_filename}"
+                assert (
+                    len(video_path) == 1
+                ), f"Multiple potential matching videos found. Videos: {[x for x in video_path]!r}"
+
+                video_path = video_path[0]
+                video_type = video_path.suffix[1:]
+                video_type = "3gpp" if video_type == "3pg" else video_type
+
+                with video_path.open("rb") as fb:
+                    video_bytes = fb.read()
+                byte_string = f"{b64encode(video_bytes)}"
+
+                video_parts += (
+                    f'    <part seq="0" ct="video/{video_type}" name="{video_path.name}" '
+                    f'chset="null" cd="null" fn="null" cid="&lt;{video_path.name}&gt;" '
+                    f'cl="{video_path.name}" ctt_s="null" ctt_t="null" text="null" '
+                    f'data="{byte_string[2:-1]}" />\n'
+                )
+
+        # Handle audios
+        audios = message.find_all("audio")
+        audio_parts = ""
+        if audios:
+            for audio in audios:
+                supported_types = ["mp3", "amr"]
+                audio_filename = audio["src"]
+                original_audio_filename = audio_filename
+                # Each audio found should only match a single file
+                audio_path = list(Path.cwd().glob(f"**/*{audio_filename}"))
+
+                if len(audio_path) == 0:
+                    # Sometimes they just forget the extension
+                    for supported_type in supported_types:
+                        audio_path = list(
+                            Path.cwd().glob(
+                                f"**/*{audio_filename}.{supported_type}")
+                        )
+                        if len(audio_path) == 1:
+                            break
+
+                if len(audio_path) == 0:
+                    # Sometimes the first word doesn't match (eg it is a phone number instead of a
+                    # contact name) so try again without the first word
+                    audio_filename = "-".join(
+                        original_audio_filename.split("-")[1:])
+                    audio_path = list(Path.cwd().glob(
+                        f"**/*{audio_filename}*"))
+
+                if len(audio_path) == 0:
+                    # Sometimes the audio filename matches the message filename instead of the
+                    # filename in the HTML. And sometimes the message filenames are repeated, eg
+                    # filefoo(0).html, filefoo(1).html, etc., but the audio filename matches just
+                    # the base ("filefoo" in this example).
+                    audio_filenames = [Path(file).stem, Path(
+                        file).stem.split("(")[0]]
+                    for audio_filename in audio_filenames:
+                        # Have to guess at the file extension in this case
+                        for supported_type in supported_types:
+                            audio_path = list(
+                                Path.cwd().glob(
+                                    f"**/*{audio_filename}*.{supported_type}"
+                                )
+                            )
+                            # Sometimes there's extra cruft in the filename in the HTML. So try to
+                            # match a subset of it.
+                            if len(audio_path) > 1:
+                                for ip in audio_path:
+                                    if ip.stem in original_audio_filename:
+                                        audio_path = [ip]
+                                        break
+
+                            if len(audio_path) == 1:
+                                break
+                        if len(audio_path) == 1:
+                            break
+
+                assert (
+                    len(audio_path) != 0
+                ), f"No matching audios found. File name: {original_audio_filename}"
+                assert (
+                    len(audio_path) == 1
+                ), f"Multiple potential matching audios found. Audios: {[x for x in audio_path]!r}"
+
+                audio_path = audio_path[0]
+                audio_type = audio_path.suffix[1:]
+                audio_type = "mpeg" if audio_type == "mp3" else audio_type
+
+                with audio_path.open("rb") as fb:
+                    audio_bytes = fb.read()
+                byte_string = f"{b64encode(audio_bytes)}"
+
+                audio_parts += (
+                    f'    <part seq="0" ct="audio/{audio_type}" name="{audio_path.name}" '
+                    f'chset="null" cd="null" fn="null" cid="&lt;{audio_path.name}&gt;" '
+                    f'cl="{audio_path.name}" ctt_s="null" ctt_t="null" text="null" '
+                    f'data="{byte_string[2:-1]}" />\n'
+                )
+
         message_text = get_message_text(message)
         time = get_time_unix(message)
         participants_xml = ""
@@ -235,6 +393,8 @@ def write_mms_messages(file, participants_raw, messages_raw):
             "  <parts> \n"
             f'    <part ct="text/plain" seq="0" text="{message_text}"/> \n'
             + image_parts
+            + video_parts
+            + audio_parts
             + "  </parts> \n"
             "  <addrs> \n"
             f"{participants_xml}"
