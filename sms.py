@@ -75,7 +75,8 @@ def write_sms_messages(file, messages_raw):
             with fallback_file.open("r", encoding="utf8") as ff:
                 soup = BeautifulSoup(ff, "html.parser")
             messages_raw_ff = soup.find_all(class_="message")
-            phone_number, participant_raw = get_first_phone_number(messages_raw_ff, 0)
+            phone_number, participant_raw = get_first_phone_number(
+                messages_raw_ff, 0)
             if phone_number != 0:
                 break
 
@@ -89,7 +90,8 @@ def write_sms_messages(file, messages_raw):
             phone_number_ff = 0
             for vcard in vcards:
                 phone_number_ff = vcard.a["href"][4:]
-            phone_number, participant_raw = get_first_phone_number([], phone_number_ff)
+            phone_number, participant_raw = get_first_phone_number(
+                [], phone_number_ff)
             if phone_number != 0:
                 break
 
@@ -144,7 +146,8 @@ def write_mms_messages(file, participants_raw, messages_raw):
                     # Sometimes they just forget the extension
                     for supported_type in supported_types:
                         image_path = list(
-                            Path.cwd().glob(f"**/*{image_filename}.{supported_type}")
+                            Path.cwd().glob(
+                                f"**/*{image_filename}.{supported_type}")
                         )
                         if len(image_path) == 1:
                             break
@@ -152,15 +155,18 @@ def write_mms_messages(file, participants_raw, messages_raw):
                 if len(image_path) == 0:
                     # Sometimes the first word doesn't match (eg it is a phone number instead of a
                     # contact name) so try again without the first word
-                    image_filename = "-".join(original_image_filename.split("-")[1:])
-                    image_path = list(Path.cwd().glob(f"**/*{image_filename}*"))
+                    image_filename = "-".join(
+                        original_image_filename.split("-")[1:])
+                    image_path = list(Path.cwd().glob(
+                        f"**/*{image_filename}*"))
 
                 if len(image_path) == 0:
                     # Sometimes the image filename matches the message filename instead of the
                     # filename in the HTML. And sometimes the message filenames are repeated, eg
                     # filefoo(0).html, filefoo(1).html, etc., but the image filename matches just
                     # the base ("filefoo" in this example).
-                    image_filenames = [Path(file).stem, Path(file).stem.split("(")[0]]
+                    image_filenames = [Path(file).stem, Path(
+                        file).stem.split("(")[0]]
                     for image_filename in image_filenames:
                         # Have to guess at the file extension in this case
                         for supported_type in supported_types:
@@ -298,7 +304,8 @@ def get_first_phone_number(messages, fallback_number):
 
     # fallback case, use number from filename
     if fallback_number != 0 and len(fallback_number) >= 7:
-        fallback_number = format_number(phonenumbers.parse(fallback_number, None))
+        fallback_number = format_number(
+            phonenumbers.parse(fallback_number, None))
     # Create dummy participant
     sender_data = BeautifulSoup(
         f'<cite class="sender vcard"><a class="tel" href="tel:{fallback_number}"><abbr class="fn" '
@@ -345,9 +352,11 @@ def get_time_unix(message):
 def write_header(filename, numsms):
     # Prepend header in memory efficient manner since the output file can be huge
     with NamedTemporaryFile(dir=Path.cwd(), delete=False) as backup_temp:
-        backup_temp.write(b"<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>\n")
+        backup_temp.write(
+            b"<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>\n")
         backup_temp.write(b"<!--Converted from GV Takeout data -->\n")
-        backup_temp.write(bytes(f'<smses count="{str(numsms)}">\n', encoding="utf8"))
+        backup_temp.write(
+            bytes(f'<smses count="{str(numsms)}">\n', encoding="utf8"))
         with open(filename, "rb") as backup_file:
             copyfileobj(backup_file, backup_temp)
     # Overwrite output file with temp file
