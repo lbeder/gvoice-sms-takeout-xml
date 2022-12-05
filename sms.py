@@ -251,12 +251,14 @@ def get_message_type(message):  # author_raw = messages_raw[i].cite
     return 0
 
 
+def escape(message):
+    return message.replace("<br/>", "&#10;").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;")
+
+
 def get_message_text(message):
     # Attempt to properly translate newlines. Might want to translate other HTML here, too.
     # This feels very hacky, but couldn't come up with something better.
-    message_text = str(message.find("q")).strip()[3:-4].replace("<br/>", "&#10;")
-
-    return message_text
+    return escape(str(message.find("q")).strip()[3:-4])
 
 
 def get_mms_sender(message, participants):
