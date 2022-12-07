@@ -38,17 +38,21 @@ def main():
                 soup = BeautifulSoup(sms_file, "html.parser")
 
             messages_raw = soup.find_all(class_="message")
-            # Skip files with no messages
-            if not len(messages_raw):
-                continue
 
-            num_sms += len(messages_raw)
+            if len(messages_raw):
+                num_sms += len(messages_raw)
 
-            if is_group_conversation:
-                participants_raw = soup.find_all(class_="participants")
-                write_mms_messages(file, participants_raw, messages_raw)
-            else:
-                write_sms_messages(file, messages_raw)
+                if is_group_conversation:
+                    participants_raw = soup.find_all(class_="participants")
+                    write_mms_messages(file, participants_raw, messages_raw)
+                else:
+                    write_sms_messages(file, messages_raw)
+
+            call_log_messages_raw = soup.find_all(class_="haudio")
+            if len(call_log_messages_raw):
+                num_sms += len(call_log_messages_raw)
+
+                write_sms_messages(file, call_log_messages_raw)
 
     sms_backup_file = open(sms_backup_filename, "a")
     sms_backup_file.write("</smses>")
@@ -106,7 +110,7 @@ def write_sms_messages(file, messages_raw):
 
         sms_values["type"] = get_message_type(message)
         sms_values["message"] = get_message_text(message)
-        sms_values["time"] = get_time_unix(message)
+        sms_values["time"] = get_message_time_unix(message)
         sms_text = (
             '<sms protocol="0" address="%(phone)s" '
             'date="%(time)s" type="%(type)s" '
@@ -369,7 +373,7 @@ def write_mms_messages(file, participants_raw, messages_raw):
                 )
 
         message_text = get_message_text(message)
-        time = get_time_unix(message)
+        time = get_message_time_unix(message)
         participants_xml = ""
         msg_box = 2 if sent_by_me else 1
         m_type = 128 if sent_by_me else 132
@@ -409,26 +413,43 @@ def write_mms_messages(file, participants_raw, messages_raw):
 
 def get_message_type(message):  # author_raw = messages_raw[i].cite
     author_raw = message.cite
+    if not author_raw:
+        return 1  # Someone else
+
     if not author_raw.span:
-        return 2
+        return 2  # Me
     else:
-        return 1
-
-    return 0
-
-
-def escape(message):
-    return message.replace("<br/>", "&#10;").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;")
+        return 1  # Someone else
 
 
 def get_message_text(message):
-    # Attempt to properly translate newlines. Might want to translate other HTML here, too.
-    # This feels very hacky, but couldn't come up with something better.
     return escape(str(message.find("q")).strip()[3:-4])
 
 
+def get_call_log_text(message):
+    return escape(message.find(class_="fn").text)
+
+
+def get_message_time_unix(message):
+    time_raw = message.find(class_="dt")
+    if not time_raw:
+        # Try call log format
+        time_raw = message.find(class_="published")
+
+    ymdhms = time_raw["title"]
+    time_obj = dateutil.parser.isoparse(ymdhms)
+    mstime = time.mktime(time_obj.timetuple()) * 1000
+    return int(mstime)
+
+
 def get_mms_sender(message, participants):
-    number_text = message.cite.a["href"][4:]
+    if message.cite:
+        sender = message.cite
+    else:
+        sender = message.find(class_="contributor")
+
+    number_text = sender.a["href"][4:]
+
     if number_text != "":
         number = format_number(phonenumbers.parse(number_text, None))
     else:
@@ -442,14 +463,23 @@ def get_mms_sender(message, participants):
 def get_first_phone_number(messages, fallback_number):
     # handle group messages
     for author_raw in messages:
-        if not author_raw.span:
+        if not author_raw:
             continue
 
-        sender_data = author_raw.cite
-        # Skip if first number is Me
-        if sender_data.text == "Me":
+        contributor = author_raw.find(class_="contributor")
+        if contributor:
+            sender_data = contributor
+        elif author_raw.span:
+            sender_data = author_raw.cite
+
+            # Skip if first number is Me
+            if sender_data.text == "Me":
+                continue
+        else:
             continue
+
         phonenumber_text = sender_data.a["href"][4:]
+
         # Sometimes the first entry is missing a phone number
         if phonenumber_text == "":
             continue
@@ -484,9 +514,9 @@ def get_participant_phone_numbers(participants_raw):
                 continue
 
             phone_number_text = participant.a["href"][4:]
-            assert (
-                phone_number_text != "" and phone_number_text != "0"
-            ), "Could not find participant phone number. Usually caused by empty tel field."
+            if phone_number_text == "" or phone_number_text == "0":
+                phone_number_text = " +00000000000"
+
             try:
                 participants.append(
                     format_number(phonenumbers.parse(phone_number_text, None))
@@ -495,18 +525,6 @@ def get_participant_phone_numbers(participants_raw):
                 participants.append(phone_number_text)
 
     return participants
-
-
-def format_number(phone_number):
-    return phonenumbers.format_number(phone_number, phonenumbers.PhoneNumberFormat.E164)
-
-
-def get_time_unix(message):
-    time_raw = message.find(class_="dt")
-    ymdhms = time_raw["title"]
-    time_obj = dateutil.parser.isoparse(ymdhms)
-    mstime = time.mktime(time_obj.timetuple()) * 1000
-    return int(mstime)
 
 
 def write_header(filename, numsms):
@@ -521,6 +539,14 @@ def write_header(filename, numsms):
             copyfileobj(backup_file, backup_temp)
     # Overwrite output file with temp file
     move(backup_temp.name, filename)
+
+
+def format_number(phone_number):
+    return phonenumbers.format_number(phone_number, phonenumbers.PhoneNumberFormat.E164)
+
+
+def escape(message):
+    return message.replace("<br/>", "&#10;").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;")
 
 
 main()
